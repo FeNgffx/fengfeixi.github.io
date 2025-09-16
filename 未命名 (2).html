@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学生考试排名图表生成器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    <!-- 添加数据标签插件 -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    
+    <!-- Tailwind 配置 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#4F46E5',
+                        secondary: '#10B981',
+                        accent: '#F59E0B',
+                        neutral: '#64748B',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .transition-custom {
+                transition: all 0.3s ease;
+            }
+            .shadow-custom {
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            }
+            .chart-card {
+                height: 400px;
+            }
+            .chart-title {
+                text-align: center;
+                font-weight: bold;
+                margin-bottom: 15px;
+                color: #333;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 font-sans text-gray-800 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <!-- 标题部分 -->
+        <header class="text-center mb-10">
+            <h1 class="text-[clamp(1.8rem,4vw,2.5rem)] font-bold text-gray-800 mb-2">学生考试排名图表生成器</h1>
+            <p class="text-gray-600 max-w-2xl mx-auto">导入Excel学生考试数据，自动为每个学生生成排名趋势图，并支持下载图片</p>
+        </header>
+        
+        <!-- 数据导入区域 -->
+        <div class="bg-white rounded-xl shadow-custom p-6 mb-8 transform hover:scale-[1.005] transition-custom">
+            <h2 class="text-xl font-semibold mb-4 flex items-center">
+                <i class="fa fa-upload text-primary mr-2"></i>数据导入
+            </h2>
+            
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-primary transition-custom cursor-pointer" id="dropZone">
+                <input type="file" id="fileInput" class="hidden" accept=".xlsx,.xls,.csv">
+                <i class="fa fa-file-excel-o text-5xl text-gray-400 mb-3"></i>
+                <p class="text-gray-600 mb-2">点击或拖拽Excel文件到此处导入</p>
+                <p class="text-sm text-gray-500">支持 .xlsx, .xls 和 .csv 格式</p>
+                <p class="text-sm text-gray-500 mt-2">数据格式：第一列学生姓名，后续列为各次考试排名</p>
+            </div>
+            
+            <div class="mt-6 flex flex-wrap gap-3">
+                <button id="importSampleBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-md transition-custom flex items-center">
+                    <i class="fa fa-file-text-o mr-2"></i>使用示例数据
+                </button>
+                <button id="clearAllBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-md transition-custom flex items-center" disabled>
+                    <i class="fa fa-trash mr-2"></i>清除所有数据
+                </button>
+                <button id="batchDownloadBtn" class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-md transition-custom flex items-center" disabled>
+                    <i class="fa fa-download mr-2"></i>批量下载所有图表
+                </button>
+            </div>
+            
+            <!-- 数据预览区域 -->
+            <div id="dataPreview" class="mt-6 hidden">
+                <h3 class="font-medium text-gray-700 mb-2">数据预览</h3>
+                <div class="overflow-x-auto max-h-48 border border-gray-200 rounded-md">
+                    <table id="previewTable" class="min-w-full divide-y divide-gray-200">
+                        <!-- 数据预览表格将在这里动态生成 -->
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 图表展示区域 -->
+        <div id="chartsSection" class="hidden">
+            <h2 class="text-xl font-semibold mb-6 flex items-center">
+                <i class="fa fa-line-chart text-primary mr-2"></i>学生考试排名趋势图
+            </h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="chartsContainer">
+                <!-- 图表将在这里动态生成 -->
+            </div>
+        </div>
+        
+        <!-- 初始状态提示 -->
+        <div id="initialState" class="text-center py-16">
+            <div class="inline-block bg-white rounded-xl shadow-custom p-8 max-w-md">
+                <i class="fa fa-bar-chart text-6xl text-gray-300 mb-4"></i>
+                <h3 class="text-lg font-medium text-gray-700 mb-2">等待数据导入</h3>
+                <p class="text-gray-500">请上传包含学生考试排名数据的Excel文件，系统将自动为每个学生生成趋势图</p>
+            </div>
+        </div>
+        
+        <!-- 批量下载进度提示 -->
+        <div id="downloadProgress" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
+            <div class="bg-white rounded-xl p-8 max-w-md w-full text-center">
+                <i class="fa fa-circle-o-notch fa-spin text-4xl text-primary mb-4"></i>
+                <h3 class="text-lg font-medium mb-2">正在批量下载</h3>
+                <p class="text-gray-600 mb-4" id="progressText">准备中...</p>
+                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div id="progressBar" class="bg-primary h-2.5 rounded-full" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 说明部分 -->
+        <div class="mt-10 bg-white rounded-xl shadow-custom p-6">
+            <h3 class="text-lg font-semibold mb-3 flex items-center">
+                <i class="fa fa-info-circle text-primary mr-2"></i>使用说明
+            </h3>
+            <ul class="list-disc pl-5 space-y-2 text-gray-600">
+                <li>Excel文件格式要求：第一列必须是学生姓名，后续各列是每次考试的排名</li>
+                <li>表头建议：第一行作为表头，如"姓名"、"第1次考试"、"第2次考试"等</li>
+                <li>点击"使用示例数据"可以查看演示效果，无需上传文件</li>
+                <li>每个学生的图表都有独立的下载按钮，可以将图表保存为图片</li>
+                <li>点击"批量下载所有图表"可以将所有学生的图表打包为ZIP文件下载</li>
+                <li>排名越小表示成绩越好，图表的Y轴已进行反转处理</li>
+            </ul>
+        </div>
+        
+        <!-- 页脚 -->
+        <footer class="mt-10 text-center text-gray-500 text-sm pb-6">
+            <p>学生考试排名图表生成器 &copy; 2023</p>
+        </footer>
+    </div>
+
+    <script>
+        // 全局变量
+        let studentsData = [];
+        let examLabels = [];
+        const colors = [
+            '#4F46E5', '#10B981', '#EF4444', '#F59E0B', '#8B5CF6', 
+            '#EC4899', '#14B8A6', '#6366F1', '#F97316', '#10B981',
+            '#84CC16', '#64748B', '#06B6D4', '#EC4899', '#F43F5E',
+            '#8B5CF6', '#14B8A6', '#6366F1', '#F97316', '#84CC16'
+        ];
+        
+        // DOM 元素
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const importSampleBtn = document.getElementById('importSampleBtn');
+        const clearAllBtn = document.getElementById('clearAllBtn');
+        const batchDownloadBtn = document.getElementById('batchDownloadBtn');
+        const dataPreview = document.getElementById('dataPreview');
+        const previewTable = document.getElementById('previewTable');
+        const chartsSection = document.getElementById('chartsSection');
+        const chartsContainer = document.getElementById('chartsContainer');
+        const initialState = document.getElementById('initialState');
+        const downloadProgress = document.getElementById('downloadProgress');
+        const progressText = document.getElementById('progressText');
+        const progressBar = document.getElementById('progressBar');
+        
+        // 事件监听器
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFileUpload);
+        importSampleBtn.addEventListener('click', loadSampleData);
+        clearAllBtn.addEventListener('click', clearAllData);
+        batchDownloadBtn.addEventListener('click', batchDownloadAllCharts);
+        
+        // 拖放功能
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-primary', 'bg-primary/5');
+        });
+        
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-primary', 'bg-primary/5');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-primary', 'bg-primary/5');
+            
+            if (e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                handleFileUpload(e);
+            }
+        });
+        
+        // 处理文件上传
+        function handleFileUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    
+                    processData(jsonData);
+                } catch (error) {
+                    console.error('解析文件时出错:', error);
+                    alert('文件解析失败，请确保上传的是有效的Excel文件。');
+                }
+            };
+            
+            reader.readAsArrayBuffer(file);
+        }
+        
+        // 处理解析后的数据
+        function processData(jsonData) {
+            // 验证数据格式
+            if (jsonData.length < 2) {
+                alert('数据格式不正确，请确保文件包含表头和至少一个学生的数据。');
+                return;
+            }
+            
+            // 提取表头（考试次数）
+            const headers = jsonData[0];
+            if (headers.length < 2) {
+                alert('数据格式不正确，至少需要包含姓名和一次考试成绩。');
+                return;
+            }
+            
+            // 提取考试标签（排除姓名列）
+            examLabels = headers.slice(1).map((header, index) => {
+                return header || `第${index + 1}次考试`;
+            });
+            
+            // 提取学生数据
+            studentsData = [];
+            for (let i = 1; i < jsonData.length; i++) {
+                const row = jsonData[i];
+                if (!row[0]) continue; // 跳过没有姓名的行
+                
+                const student = {
+                    name: row[0],
+                    ranks: []
+                };
+                
+                // 提取各次考试排名
+                for (let j = 1; j < row.length; j++) {
+                    const rank = parseInt(row[j]);
+                    student.ranks.push(isNaN(rank) ? 0 : rank);
+                }
+                
+                studentsData.push(student);
+            }
+            
+            if (studentsData.length === 0) {
+                alert('未找到有效的学生数据，请检查文件格式。');
+                return;
+            }
+            
+            // 显示数据预览
+            showDataPreview(headers, studentsData);
+            
+            // 生成图表
+            generateAllCharts();
+            
+            // 更新界面状态
+            updateUIState();
+        }
+        
+        // 显示数据预览
+        function showDataPreview(headers, students) {
+            // 创建表头
+            let theadHtml = '<thead class="bg-gray-50"><tr>';
+            headers.forEach(header => {
+                theadHtml += `<th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">${header || '未命名'}</th>`;
+            });
+            theadHtml += '</tr></thead>';
+            
+            // 创建表体
+            let tbodyHtml = '<tbody class="bg-white divide-y divide-gray-200">';
+            // 只显示前5条数据
+            const previewStudents = students.slice(0, 5);
+            previewStudents.forEach(student => {
+                tbodyHtml += '<tr>';
+                tbodyHtml += `<td class="px-3 py-2 text-sm text-gray-900">${student.name}</td>`;
+                
+                student.ranks.forEach(rank => {
+                    tbodyHtml += `<td class="px-3 py-2 text-sm text-gray-500">${rank}</td>`;
+                });
+                
+                // 补全空列
+                for (let i = student.ranks.length; i < headers.length - 1; i++) {
+                    tbodyHtml += '<td class="px-3 py-2 text-sm text-gray-500">-</td>';
+                }
+                
+                tbodyHtml += '</tr>';
+            });
+            
+            // 如果有更多数据，显示提示
+            if (students.length > 5) {
+                tbodyHtml += `<tr><td colspan="${headers.length}" class="px-3 py-2 text-sm text-gray-500 text-center">... 还有 ${students.length - 5} 名学生未显示 ...</td></tr>`;
+            }
+            
+            tbodyHtml += '</tbody>';
+            
+            // 更新预览表格
+            previewTable.innerHTML = theadHtml + tbodyHtml;
+            dataPreview.classList.remove('hidden');
+        }
+        
+        // 生成所有学生的图表
+        function generateAllCharts() {
+            chartsContainer.innerHTML = '';
+            
+            studentsData.forEach((student, index) => {
+                // 创建图表容器，包含标题
+                const chartId = `chart-${index}`;
+                const chartCard = document.createElement('div');
+                chartCard.className = 'bg-white rounded-xl shadow-custom overflow-hidden transform hover:scale-[1.01] transition-custom';
+                chartCard.innerHTML = `
+                    <div class="p-4 border-b border-gray-100 flex justify-between items-center">
+                        <h3 class="font-semibold text-gray-800">${student.name} 的排名趋势</h3>
+                        <button class="download-chart-btn bg-accent hover:bg-accent/90 text-white p-2 rounded-md transition-custom" data-chart-id="${chartId}">
+                            <i class="fa fa-download mr-1"></i> 下载
+                        </button>
+                    </div>
+                    <div class="p-4 chart-card">
+                        <!-- 图表标题，会被包含在下载的图片中 -->
+                        <div class="chart-title">${student.name} 的考试排名趋势</div>
+                        <canvas id="${chartId}"></canvas>
+                    </div>
+                `;
+                
+                chartsContainer.appendChild(chartCard);
+                
+                // 创建图表
+                const ctx = document.getElementById(chartId).getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: examLabels,
+                        datasets: [{
+                            label: student.name,
+                            data: student.ranks,
+                            borderColor: colors[index % colors.length],
+                            backgroundColor: `${colors[index % colors.length]}10`,
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true,
+                            pointBackgroundColor: colors[index % colors.length],
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        // 启用数据标签插件
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return `排名: 第${context.parsed.y}名`;
+                                    }
+                                }
+                            },
+                            // 配置数据标签显示具体排名
+                            datalabels: {
+                                display: true,
+                                color: colors[index % colors.length],
+                                font: {
+                                    weight: 'bold',
+                                    size: 12
+                                },
+                                formatter: function(value) {
+                                    return `第${value}名`;
+                                },
+                                // 调整标签位置
+                                offset: 10,
+                                anchor: 'end',
+                                align: 'top'
+                            }
+                        },
+                        scales: {
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: '考试次数'
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: '排名'
+                                },
+                                reverse: true, // 反转Y轴，排名越小越靠上
+                                beginAtZero: false,
+                                min: 1,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value + '名';
+                                    }
+                                }
+                            }
+                        },
+                        animation: {
+                            duration: 1000,
+                            easing: 'easeOutQuart'
+                        }
+                    },
+                    // 注册数据标签插件
+                    plugins: [ChartDataLabels]
+                });
+            });
+            
+            // 为所有下载按钮添加事件监听
+            document.querySelectorAll('.download-chart-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const chartId = this.getAttribute('data-chart-id');
+                    downloadChart(chartId, studentsData.find(s => 
+                        document.querySelector(`[data-chart-id="${chartId}"]`).closest('.bg-white').querySelector('h3').textContent.includes(s.name)
+                    ).name);
+                });
+            });
+        }
+        
+        // 下载单个图表
+        function downloadChart(chartId, studentName) {
+            // 选择包含标题和图表的容器，确保姓名被包含在下载内容中
+            const chartContainer = document.getElementById(chartId).parentNode;
+            
+            html2canvas(chartContainer, {
+                scale: 2, // 提高分辨率
+                useCORS: true,
+                logging: false
+            }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `${studentName}的考试排名趋势图.png`;
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            }).catch(error => {
+                console.error('下载图表失败:', error);
+                alert('下载图表失败，请重试！');
+            });
+        }
+        
+        // 批量下载所有图表
+        function batchDownloadAllCharts() {
+            if (studentsData.length === 0) return;
+            
+            // 显示进度提示
+            downloadProgress.classList.remove('hidden');
+            progressText.textContent = `正在处理 1/${studentsData.length}`;
+            progressBar.style.width = '0%';
+            
+            const zip = new JSZip();
+            const imagesFolder = zip.folder("学生排名图表");
+            let completedCount = 0;
+            
+            // 逐个处理图表
+            studentsData.forEach((student, index) => {
+                const chartId = `chart-${index}`;
+                // 选择包含标题和图表的容器
+                const chartContainer = document.getElementById(chartId).parentNode;
+                
+                // 延迟处理，避免浏览器负担过重
+                setTimeout(() => {
+                    html2canvas(chartContainer, {
+                        scale: 2,
+                        useCORS: true,
+                        logging: false
+                    }).then(canvas => {
+                        // 将canvas转换为blob并添加到zip
+                        canvas.toBlob(blob => {
+                            imagesFolder.file(`${student.name}的考试排名趋势图.png`, blob);
+                            completedCount++;
+                            
+                            // 更新进度
+                            const progress = (completedCount / studentsData.length) * 100;
+                            progressBar.style.width = `${progress}%`;
+                            progressText.textContent = `正在处理 ${completedCount}/${studentsData.length}`;
+                            
+                            // 所有图表处理完成后生成zip文件
+                            if (completedCount === studentsData.length) {
+                                zip.generateAsync({ type: "blob" }, (metadata) => {
+                                    // 可以在这里添加更详细的进度，但基本进度已经足够
+                                }).then(content => {
+                                    // 隐藏进度提示
+                                    downloadProgress.classList.add('hidden');
+                                    // 下载zip文件
+                                    saveAs(content, "学生考试排名图表集合.zip");
+                                });
+                            }
+                        });
+                    }).catch(error => {
+                        console.error(`下载${student.name}的图表失败:`, error);
+                        completedCount++;
+                        
+                        // 即使有错误，也要继续处理其他图表
+                        if (completedCount === studentsData.length) {
+                            zip.generateAsync({ type: "blob" }).then(content => {
+                                downloadProgress.classList.add('hidden');
+                                saveAs(content, "学生考试排名图表集合.zip");
+                                alert(`部分图表下载失败，共成功下载 ${completedCount - (studentsData.length - completedCount)} 个图表`);
+                            });
+                        }
+                    });
+                }, index * 500); // 每个图表间隔500ms处理，避免同时处理过多
+            });
+        }
+        
+        // 加载示例数据
+        function loadSampleData() {
+            // 示例数据
+            const sampleData = [
+                ['姓名', '第1次考试', '第2次考试', '第3次考试', '第4次考试'],
+                ['张三', 15, 12, 8, 5],
+                ['李四', 8, 10, 12, 14],
+                ['王五', 5, 6, 4, 6],
+                ['赵六', 20, 18, 15, 12],
+                ['钱七', 12, 9, 10, 8],
+                ['孙八', 7, 5, 6, 4],
+                ['周九', 18, 15, 11, 9],
+                ['吴十', 10, 11, 9, 7]
+            ];
+            
+            processData(sampleData);
+        }
+        
+        // 清除所有数据
+        function clearAllData() {
+            studentsData = [];
+            examLabels = [];
+            fileInput.value = '';
+            dataPreview.classList.add('hidden');
+            chartsSection.classList.add('hidden');
+            initialState.classList.remove('hidden');
+            clearAllBtn.disabled = true;
+            batchDownloadBtn.disabled = true;
+        }
+        
+        // 更新UI状态
+        function updateUIState() {
+            if (studentsData.length > 0) {
+                initialState.classList.add('hidden');
+                chartsSection.classList.remove('hidden');
+                clearAllBtn.disabled = false;
+                batchDownloadBtn.disabled = false;
+            } else {
+                initialState.classList.remove('hidden');
+                chartsSection.classList.add('hidden');
+                clearAllBtn.disabled = true;
+                batchDownloadBtn.disabled = true;
+            }
+        }
+    </script>
+</body>
+</html>
